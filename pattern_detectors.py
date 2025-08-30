@@ -1,5 +1,5 @@
 # pattern_detectors.py
-# Pattern Detector V8.1 - Pattern Detection Algorithms with Inverse Head & Shoulders
+# Pattern Detector V8.2.13 - Pattern Detection Algorithms with Inverse Head & Shoulders
 
 import numpy as np
 from config import (
