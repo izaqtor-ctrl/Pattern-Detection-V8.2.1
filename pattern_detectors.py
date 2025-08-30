@@ -1,5 +1,5 @@
 # pattern_detectors.py
-# Pattern Detector V8.2.13 - Pattern Detection Algorithms with Inverse Head & Shoulders
+# Pattern Detector V8.1 - Pattern Detection Algorithms with Fixed Inverse Head & Shoulders
 
 import numpy as np
 from config import (
@@ -553,380 +553,92 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
 
 def detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, market_context, timeframe="daily"):
     """
-    Enhanced Inverse Head and Shoulders Pattern Detection
+    Simplified and More Practical Inverse Head and Shoulders Detection
     
-    Combines best practices from:
-    1. TradingView's 5/5 pivot system with symmetry validation
-    2. Academic research emphasizing volume confirmation
-    3. Professional trader requirements for shoulder alignment
+    The original version was too restrictive with:
+    - 5/5 pivot validation (too strict)
+    - 20-60 day width limits (too narrow)  
+    - 50% symmetry requirement (too high)
+    - Complex impulsive move validation (unnecessary)
     
-    Unique enhancements:
-    - Multi-timeframe pivot validation
-    - Advanced symmetry scoring system
-    - Impulsive move validation
-    - Neckline slope analysis
-    - Volume distribution analysis
+    This version uses a more practical approach that will actually detect patterns.
     """
     confidence = 0
     pattern_info = {}
     
-    if len(data) < 60:
+    # More reasonable minimum data requirement
+    if len(data) < 30:
         return confidence, pattern_info
     
-    thresholds = PATTERN_THRESHOLDS["Inverse Head Shoulders"]
+    # Simpler approach: Look for 3 significant lows in recent data
+    lookback_period = min(80, len(data))  # Look back up to 80 periods
+    recent_data = data.tail(lookback_period)
     
-    # Adjust parameters based on timeframe
-    if timeframe == "1wk":
-        min_pattern_bars = 15  # weeks
-        pivot_strength = thresholds['pivot_strength_weekly']
-        aging_threshold = PATTERN_AGE_LIMITS['weekly']['Inverse Head Shoulders']
-        pattern_info['timeframe'] = 'Weekly'
-        min_width = thresholds['min_pattern_width_weekly']
-        max_width = thresholds['max_pattern_width_weekly']
-    else:
-        min_pattern_bars = 40  # days
-        pivot_strength = thresholds['pivot_strength_daily']
-        aging_threshold = PATTERN_AGE_LIMITS['daily']['Inverse Head Shoulders']
-        pattern_info['timeframe'] = 'Daily'
-        min_width = thresholds['min_pattern_width_daily']
-        max_width = thresholds['max_pattern_width_daily']
-    
-    if len(data) < min_pattern_bars:
+    if len(recent_data) < 20:
         return confidence, pattern_info
     
-    # Step 1: Find pivot lows (inverse head and shoulders uses lows)
-    pivot_lows = find_pivot_lows(data, pivot_strength, min_pattern_bars)
+    # Find potential head and shoulders using a simpler method
+    pattern = find_simple_inverse_hs_pattern(recent_data)
     
-    if len(pivot_lows) < 3:
+    if not pattern:
         return confidence, pattern_info
     
-    # Step 2: Find valid inverse head and shoulders formations
-    valid_patterns = find_inverse_head_shoulders_formations(data, pivot_lows, timeframe, min_width, max_width, thresholds)
+    # Base confidence for finding the pattern structure
+    confidence = 40
     
-    if not valid_patterns:
-        return confidence, pattern_info
-    
-    # Step 3: Score and select best pattern
-    best_pattern = select_best_pattern(valid_patterns, data)
-    
-    if not best_pattern:
-        return confidence, pattern_info
-    
-    # Step 4: Validate pattern quality and calculate confidence
-    confidence, pattern_info = validate_and_score_ihs_pattern(
-        data, best_pattern, macd_line, signal_line, histogram, 
-        market_context, timeframe, aging_threshold, thresholds
-    )
-    
-    return confidence, pattern_info
-
-def find_pivot_lows(data, pivot_strength, lookback_period):
-    """Find pivot lows using TradingView's proven 5/5 system"""
-    pivot_lows = []
-    
-    # Only look at recent data for pattern formation
-    start_idx = max(0, len(data) - lookback_period)
-    search_data = data.iloc[start_idx:]
-    
-    for i in range(pivot_strength, len(search_data) - pivot_strength):
-        current_low = search_data['Low'].iloc[i]
-        current_idx = start_idx + i
-        
-        # Check left bars
-        left_valid = True
-        for j in range(1, pivot_strength + 1):
-            if search_data['Low'].iloc[i - j] <= current_low:
-                left_valid = False
-                break
-        
-        # Check right bars
-        right_valid = True
-        for j in range(1, pivot_strength + 1):
-            if search_data['Low'].iloc[i + j] <= current_low:
-                right_valid = False
-                break
-        
-        if left_valid and right_valid:
-            pivot_lows.append({
-                'idx': current_idx,
-                'price': current_low,
-                'date': search_data.index[i]
-            })
-    
-    return pivot_lows
-
-def find_inverse_head_shoulders_formations(data, pivot_lows, timeframe, min_width, max_width, thresholds):
-    """Find valid inverse H&S patterns from pivot lows"""
-    valid_patterns = []
-    
-    # Need at least 3 pivot lows
-    if len(pivot_lows) < 3:
-        return valid_patterns
-    
-    # Test all combinations of 3 consecutive pivot lows
-    for i in range(len(pivot_lows) - 2):
-        left_shoulder = pivot_lows[i]
-        head = pivot_lows[i + 1]
-        right_shoulder = pivot_lows[i + 2]
-        
-        # Basic inverse H&S structure: head must be lowest
-        if not (head['price'] < left_shoulder['price'] and head['price'] < right_shoulder['price']):
-            continue
-        
-        # Pattern width validation
-        pattern_width = right_shoulder['idx'] - left_shoulder['idx']
-        if not (min_width <= pattern_width <= max_width):
-            continue
-        
-        # Find neckline points (highs between the lows)
-        left_neck_point = find_peak_between(data, left_shoulder['idx'], head['idx'])
-        right_neck_point = find_peak_between(data, head['idx'], right_shoulder['idx'])
-        
-        if not left_neck_point or not right_neck_point:
-            continue
-        
-        # Calculate pattern metrics
-        head_depth = calculate_head_depth(left_shoulder, head, right_shoulder)
-        shoulder_symmetry = calculate_shoulder_symmetry(left_shoulder, head, right_shoulder)
-        
-        # Validate head depth
-        if not (thresholds['min_head_depth'] <= head_depth <= thresholds['max_head_depth']):
-            continue
-        
-        # Validate symmetry
-        if shoulder_symmetry < thresholds['min_symmetry']:
-            continue
-        
-        pattern = {
-            'left_shoulder': left_shoulder,
-            'head': head,
-            'right_shoulder': right_shoulder,
-            'left_neck_point': left_neck_point,
-            'right_neck_point': right_neck_point,
-            'neckline_slope': calculate_neckline_slope(left_neck_point, right_neck_point),
-            'pattern_width': pattern_width,
-            'head_depth': head_depth,
-            'shoulder_symmetry': shoulder_symmetry
-        }
-        
-        # Advanced validation
-        if validate_pattern_structure(data, pattern, timeframe, thresholds):
-            valid_patterns.append(pattern)
-    
-    return valid_patterns
-
-def find_peak_between(data, start_idx, end_idx):
-    """Find the highest point between two indices"""
-    if start_idx >= end_idx or end_idx >= len(data):
-        return None
-    
-    segment = data.iloc[start_idx:end_idx + 1]
-    if len(segment) == 0:
-        return None
-    
-    max_idx = segment['High'].idxmax()
-    max_price = segment['High'].max()
-    
-    return {
-        'idx': data.index.get_loc(max_idx),
-        'price': max_price,
-        'date': max_idx
-    }
-
-def calculate_neckline_slope(left_point, right_point):
-    """Calculate neckline slope - negative is preferred for inverse H&S"""
-    if not left_point or not right_point:
-        return 0
-    
-    price_diff = right_point['price'] - left_point['price']
-    time_diff = right_point['idx'] - left_point['idx']
-    
-    if time_diff == 0:
-        return 0
-    
-    return price_diff / time_diff
-
-def calculate_head_depth(left_shoulder, head, right_shoulder):
-    """Calculate how deep the head is relative to shoulders"""
-    avg_shoulder_price = (left_shoulder['price'] + right_shoulder['price']) / 2
-    depth_ratio = (avg_shoulder_price - head['price']) / avg_shoulder_price
-    return depth_ratio
-
-def calculate_shoulder_symmetry(left_shoulder, head, right_shoulder):
-    """Calculate shoulder symmetry score (0-1, higher is better)"""
-    # Time symmetry
-    left_time = head['idx'] - left_shoulder['idx']
-    right_time = right_shoulder['idx'] - head['idx']
-    
-    if left_time == 0 or right_time == 0:
-        time_symmetry = 0
-    else:
-        time_ratio = min(left_time, right_time) / max(left_time, right_time)
-        time_symmetry = time_ratio
-    
-    # Price symmetry (shoulders should be at similar levels)
-    price_diff = abs(left_shoulder['price'] - right_shoulder['price'])
-    avg_price = (left_shoulder['price'] + right_shoulder['price']) / 2
-    
-    if avg_price == 0:
-        price_symmetry = 0
-    else:
-        price_symmetry = max(0, 1 - (price_diff / avg_price) * 2)  # Penalize price differences
-    
-    # Combined symmetry score
-    combined_symmetry = (time_symmetry * 0.6 + price_symmetry * 0.4)
-    return combined_symmetry
-
-def validate_pattern_structure(data, pattern, timeframe, thresholds):
-    """Advanced pattern structure validation"""
-    
-    # Validate impulsive moves (key professional requirement)
-    if not validate_impulsive_moves(data, pattern, thresholds['impulsive_move_threshold']):
-        return False
-    
-    return True
-
-def validate_impulsive_moves(data, pattern, threshold):
-    """Ensure moves are impulsive, not choppy (professional requirement)"""
-    
-    # Check left shoulder to head move
-    left_move_data = data.iloc[pattern['left_shoulder']['idx']:pattern['head']['idx'] + 1]
-    if not is_impulsive_move(left_move_data, 'down', threshold):
-        return False
-    
-    # Check head to right shoulder move
-    right_move_data = data.iloc[pattern['head']['idx']:pattern['right_shoulder']['idx'] + 1]
-    if not is_impulsive_move(right_move_data, 'up', threshold):
-        return False
-    
-    return True
-
-def is_impulsive_move(price_data, direction, threshold):
-    """Check if price movement is impulsive rather than choppy"""
-    if len(price_data) < 3:
-        return True
-    
-    if direction == 'down':
-        # For downward moves, check if predominantly declining
-        declining_bars = sum(1 for i in range(1, len(price_data)) 
-                           if price_data['Close'].iloc[i] < price_data['Close'].iloc[i-1])
-        impulsive_ratio = declining_bars / (len(price_data) - 1)
-        return impulsive_ratio >= threshold
-    
-    else:  # direction == 'up'
-        # For upward moves, check if predominantly rising
-        rising_bars = sum(1 for i in range(1, len(price_data)) 
-                        if price_data['Close'].iloc[i] > price_data['Close'].iloc[i-1])
-        impulsive_ratio = rising_bars / (len(price_data) - 1)
-        return impulsive_ratio >= threshold
-
-def select_best_pattern(valid_patterns, data):
-    """Select the highest quality pattern using scoring system"""
-    if not valid_patterns:
-        return None
-    
-    best_pattern = None
-    best_score = 0
-    
-    for pattern in valid_patterns:
-        score = 0
-        
-        # Score symmetry (25 points max)
-        score += pattern['shoulder_symmetry'] * 25
-        
-        # Score head depth (20 points max) - prefer moderate depth
-        ideal_depth = PATTERN_THRESHOLDS["Inverse Head Shoulders"]['ideal_head_depth']
-        depth_score = 20 * (1 - abs(pattern['head_depth'] - ideal_depth) / ideal_depth)
-        score += max(0, min(20, depth_score))
-        
-        # Score neckline slope (15 points max) - prefer downward slope
-        if pattern['neckline_slope'] < 0:
-            score += 15  # Downward slope is ideal
-        elif pattern['neckline_slope'] == 0:
-            score += 10  # Flat is acceptable
-        else:
-            score += 5   # Upward slope is less ideal
-        
-        # Score recency (10 points max) - prefer more recent patterns
-        current_idx = len(data) - 1
-        recency_score = 10 * (1 - (current_idx - pattern['right_shoulder']['idx']) / 30)
-        score += max(0, recency_score)
-        
-        if score > best_score:
-            best_score = score
-            best_pattern = pattern
-    
-    return best_pattern
-
-def validate_and_score_ihs_pattern(data, pattern, macd_line, signal_line, histogram, 
-                                 market_context, timeframe, aging_threshold, thresholds):
-    """Final validation and confidence scoring for inverse head and shoulders"""
-    confidence = 0
-    pattern_info = {}
-    
-    # Base confidence for valid pattern structure
-    confidence += 30
-    
-    # Add pattern-specific information
+    # Add pattern information
     pattern_info.update({
         'left_shoulder_price': pattern['left_shoulder']['price'],
-        'head_price': pattern['head']['price'],
+        'head_price': pattern['head']['price'], 
         'right_shoulder_price': pattern['right_shoulder']['price'],
-        'left_neck_price': pattern['left_neck_point']['price'],
-        'right_neck_price': pattern['right_neck_point']['price'],
-        'neckline_slope': pattern['neckline_slope'],
+        'left_neck_price': pattern['left_neck']['price'],
+        'right_neck_price': pattern['right_neck']['price'],
         'head_depth_percent': f"{pattern['head_depth']*100:.1f}%",
-        'shoulder_symmetry_score': f"{pattern['shoulder_symmetry']:.2f}",
-        'pattern_width_bars': pattern['pattern_width']
+        'shoulder_symmetry_score': f"{pattern['symmetry']:.2f}",
+        'pattern_width_bars': pattern['width']
     })
     
-    # Symmetry bonus (inspired by professional traders' emphasis)
-    if pattern['shoulder_symmetry'] > 0.8:
-        confidence += 20
-        pattern_info['excellent_symmetry'] = True
-    elif pattern['shoulder_symmetry'] > 0.7:
+    # Validate head depth (more lenient)
+    if pattern['head_depth'] >= 0.03:  # At least 3% depth (was 5%)
         confidence += 15
-        pattern_info['good_symmetry'] = True
-    elif pattern['shoulder_symmetry'] > 0.6:
-        confidence += 10
-        pattern_info['fair_symmetry'] = True
+        if pattern['head_depth'] >= 0.08:  # Good depth
+            confidence += 10
+            pattern_info['good_head_depth'] = True
     
-    # Head depth scoring
-    ideal_depth = thresholds['ideal_head_depth']
-    if abs(pattern['head_depth'] - ideal_depth) < 0.05:
-        confidence += 15
-        pattern_info['optimal_head_depth'] = True
-    elif 0.10 <= pattern['head_depth'] <= 0.25:
+    # Validate shoulder positioning (more lenient)  
+    if pattern['symmetry'] > 0.3:  # 30% symmetry (was 50%)
         confidence += 10
-        pattern_info['acceptable_head_depth'] = True
+        if pattern['symmetry'] > 0.6:
+            confidence += 10
+            pattern_info['good_symmetry'] = True
+        if pattern['symmetry'] > 0.8:
+            confidence += 10
+            pattern_info['excellent_symmetry'] = True
     
-    # Neckline slope bonus (research shows downward slope is preferred)
-    if pattern['neckline_slope'] < -0.01:
-        confidence += 15
-        pattern_info['ideal_downward_neckline'] = True
-    elif pattern['neckline_slope'] < 0:
-        confidence += 10
-        pattern_info['good_downward_neckline'] = True
-    elif abs(pattern['neckline_slope']) < 0.01:
-        confidence += 5
-        pattern_info['flat_neckline'] = True
-    
-    # Current position analysis
+    # Check current position relative to neckline
     current_price = data['Close'].iloc[-1]
-    neckline_price = pattern['right_neck_point']['price']
+    neckline_price = (pattern['left_neck']['price'] + pattern['right_neck']['price']) / 2
     
-    # Check if near breakout
     distance_to_neckline = (neckline_price - current_price) / current_price
-    
-    if distance_to_neckline < 0.02:  # Within 2% of neckline
+    if abs(distance_to_neckline) < 0.05:  # Within 5% of neckline
         confidence += 15
         pattern_info['near_breakout'] = True
-        pattern_info['distance_to_neckline'] = f"{distance_to_neckline*100:.1f}%"
-    elif distance_to_neckline < 0.05:  # Within 5% of neckline
+    elif abs(distance_to_neckline) < 0.10:  # Within 10%
         confidence += 10
         pattern_info['approaching_neckline'] = True
     
-    # Technical confirmation
+    # Neckline slope analysis (simplified)
+    neckline_slope = (pattern['right_neck']['price'] - pattern['left_neck']['price']) / pattern['width']
+    pattern_info['neckline_slope'] = neckline_slope
+    
+    if neckline_slope <= 0:  # Flat or downward sloping preferred
+        confidence += 10
+        if neckline_slope < -0.01:
+            pattern_info['ideal_downward_neckline'] = True
+        else:
+            pattern_info['flat_neckline'] = True
+    
+    # Technical indicators
     if macd_line.iloc[-1] > signal_line.iloc[-1]:
         confidence += 10
         pattern_info['macd_bullish'] = True
@@ -935,101 +647,219 @@ def validate_and_score_ihs_pattern(data, pattern, macd_line, signal_line, histog
         confidence += 10
         pattern_info['momentum_improving'] = True
     
-    # Enhanced volume analysis
-    volume_score, volume_info = analyze_inverse_head_shoulders_volume(data, pattern)
+    # Volume analysis (simplified)
+    volume_score, volume_info = analyze_simple_ihs_volume(data, pattern)
     confidence += volume_score
     pattern_info.update(volume_info)
     
-    # Apply volume confirmation cap (research finding)
-    if not (volume_info.get('volume_pattern_confirmed') or 
-            volume_info.get('strong_volume') or 
-            volume_info.get('exceptional_volume')):
-        confidence = min(confidence, MAX_CONFIDENCE_WITHOUT_VOLUME)
+    # Apply volume confirmation cap
+    if not (volume_info.get('good_volume') or volume_info.get('strong_volume') or volume_info.get('exceptional_volume')):
+        confidence = min(confidence, 70)  # Cap at 70% without volume
         pattern_info['confidence_capped'] = "No volume confirmation"
     
-    # Age penalty
-    bars_since_right_shoulder = len(data) - 1 - pattern['right_shoulder']['idx']
-    if bars_since_right_shoulder > aging_threshold:
-        confidence *= 0.7
-        pattern_info['pattern_aging'] = True
-        pattern_info['age_bars'] = bars_since_right_shoulder
+    # Pattern age penalty (simplified)
+    bars_since_pattern = len(data) - pattern['right_shoulder']['idx_pos']
+    age_limit = 25 if timeframe == "1wk" else 35  # More lenient age limits
     
-    # Invalidation checks
-    invalidation_issues = check_pattern_invalidation(data, pattern)
-    if invalidation_issues:
-        confidence *= 0.5
-        pattern_info.update(invalidation_issues)
+    if bars_since_pattern > age_limit:
+        confidence *= 0.8
+        pattern_info['pattern_aging'] = True
+        pattern_info['age_bars'] = bars_since_pattern
+    
+    # Invalidation check (simplified)
+    if current_price < pattern['head']['price'] * 0.97:  # 3% below head
+        confidence *= 0.6
+        pattern_info['below_head_warning'] = "Price near/below head level"
     
     return confidence, pattern_info
 
-def analyze_inverse_head_shoulders_volume(data, pattern):
-    """Advanced volume analysis specific to inverse head and shoulders"""
+def find_simple_inverse_hs_pattern(data):
+    """
+    Simplified pattern finding that actually works
+    
+    Instead of complex pivot detection, use a practical approach:
+    1. Find the lowest point (head candidate)
+    2. Find lower highs on each side (shoulder candidates)
+    3. Validate basic structure
+    """
+    
+    if len(data) < 15:
+        return None
+    
+    # Find the overall lowest point as head candidate
+    head_idx = data['Low'].idxmin()
+    head_idx_pos = data.index.get_loc(head_idx)
+    
+    # Need some data on both sides of head
+    if head_idx_pos < 5 or head_idx_pos > len(data) - 5:
+        return None
+    
+    head_price = data['Low'].loc[head_idx]
+    
+    # Find left shoulder - look for low before head
+    left_data = data.iloc[:head_idx_pos]
+    if len(left_data) < 5:
+        return None
+    
+    # Find a significant low in left half
+    left_shoulder_candidates = []
+    for i in range(2, len(left_data) - 2):
+        price = left_data['Low'].iloc[i]
+        # Check if it's a local low
+        if (price <= left_data['Low'].iloc[i-2:i+3].min() and 
+            price > head_price):  # Must be above head
+            left_shoulder_candidates.append({
+                'idx': left_data.index[i],
+                'idx_pos': i,
+                'price': price
+            })
+    
+    if not left_shoulder_candidates:
+        return None
+    
+    # Choose the most significant left shoulder (deepest low)
+    left_shoulder = min(left_shoulder_candidates, key=lambda x: x['price'])
+    
+    # Find right shoulder - look for low after head  
+    right_data = data.iloc[head_idx_pos:]
+    if len(right_data) < 5:
+        return None
+    
+    right_shoulder_candidates = []
+    for i in range(2, len(right_data) - 2):
+        price = right_data['Low'].iloc[i]
+        # Check if it's a local low
+        if (price <= right_data['Low'].iloc[i-2:i+3].min() and 
+            price > head_price):  # Must be above head
+            right_shoulder_candidates.append({
+                'idx': right_data.index[i],
+                'idx_pos': head_idx_pos + i,
+                'price': price
+            })
+    
+    if not right_shoulder_candidates:
+        return None
+    
+    # Choose the most significant right shoulder
+    right_shoulder = min(right_shoulder_candidates, key=lambda x: x['price'])
+    
+    # Find neckline points (peaks between shoulders and head)
+    left_neck_data = data.iloc[left_shoulder['idx_pos']:head_idx_pos]
+    right_neck_data = data.iloc[head_idx_pos:right_shoulder['idx_pos']]
+    
+    if len(left_neck_data) < 2 or len(right_neck_data) < 2:
+        return None
+    
+    left_neck_idx = left_neck_data['High'].idxmax()
+    right_neck_idx = right_neck_data['High'].idxmax()
+    
+    left_neck = {
+        'idx': left_neck_idx,
+        'price': left_neck_data['High'].max()
+    }
+    
+    right_neck = {
+        'idx': right_neck_idx, 
+        'price': right_neck_data['High'].max()
+    }
+    
+    # Calculate pattern metrics
+    head_depth = calculate_simple_head_depth(left_shoulder, right_shoulder, head_price)
+    symmetry = calculate_simple_symmetry(left_shoulder, right_shoulder, head_idx_pos)
+    width = right_shoulder['idx_pos'] - left_shoulder['idx_pos']
+    
+    # Basic validation - more lenient than before
+    if head_depth < 0.02:  # At least 2% head depth (was 5%)
+        return None
+        
+    if width < 8 or width > 100:  # Pattern width 8-100 bars (was 20-60)
+        return None
+    
+    return {
+        'left_shoulder': left_shoulder,
+        'head': {'idx': head_idx, 'idx_pos': head_idx_pos, 'price': head_price},
+        'right_shoulder': right_shoulder,
+        'left_neck': left_neck,
+        'right_neck': right_neck,
+        'head_depth': head_depth,
+        'symmetry': symmetry,
+        'width': width
+    }
+
+def calculate_simple_head_depth(left_shoulder, right_shoulder, head_price):
+    """Calculate head depth more simply"""
+    avg_shoulder_price = (left_shoulder['price'] + right_shoulder['price']) / 2
+    if avg_shoulder_price <= head_price:
+        return 0
+    return (avg_shoulder_price - head_price) / avg_shoulder_price
+
+def calculate_simple_symmetry(left_shoulder, right_shoulder, head_idx_pos):
+    """Calculate shoulder symmetry more simply"""
+    left_distance = head_idx_pos - left_shoulder['idx_pos'] 
+    right_distance = right_shoulder['idx_pos'] - head_idx_pos
+    
+    if left_distance == 0 or right_distance == 0:
+        return 0
+    
+    # Time symmetry
+    time_ratio = min(left_distance, right_distance) / max(left_distance, right_distance)
+    
+    # Price symmetry  
+    price_diff = abs(left_shoulder['price'] - right_shoulder['price'])
+    avg_price = (left_shoulder['price'] + right_shoulder['price']) / 2
+    price_symmetry = max(0, 1 - (price_diff / avg_price))
+    
+    # Combined symmetry (weight time more heavily)
+    return (time_ratio * 0.7 + price_symmetry * 0.3)
+
+def analyze_simple_ihs_volume(data, pattern):
+    """Simplified volume analysis for inverse head and shoulders"""
     volume_score = 0
     volume_info = {}
     
     if len(data) < 20:
         return volume_score, volume_info
     
-    # Get volume data for each phase
-    left_shoulder_vol = data['Volume'].iloc[pattern['left_shoulder']['idx']]
-    head_vol = data['Volume'].iloc[pattern['head']['idx']]
-    right_shoulder_vol = data['Volume'].iloc[pattern['right_shoulder']['idx']]
-    current_vol = data['Volume'].iloc[-1]
-    avg_volume = data['Volume'].tail(20).mean()
-    
-    # Classic inverse H&S volume pattern: decreasing from left to right shoulder
-    if left_shoulder_vol > head_vol > right_shoulder_vol:
-        volume_score += 20
-        volume_info['classic_volume_pattern'] = True
-        volume_info['volume_pattern_confirmed'] = True
-    elif left_shoulder_vol > right_shoulder_vol:
-        volume_score += 10
-        volume_info['diminishing_volume_pattern'] = True
-    
     # Current volume analysis
-    current_multiplier = current_vol / avg_volume
-    volume_info['current_volume_ratio'] = f"{current_multiplier:.1f}x"
+    avg_volume = data['Volume'].tail(20).mean()
+    current_volume = data['Volume'].iloc[-1]
+    volume_multiplier = current_volume / avg_volume
     
-    if current_multiplier >= 2.0:
+    volume_info['current_volume_ratio'] = f"{volume_multiplier:.1f}x"
+    
+    # Standard volume scoring
+    if volume_multiplier >= 2.0:
         volume_score += 25
         volume_info['exceptional_volume'] = True
-        volume_info['volume_status'] = f"Exceptional Volume ({current_multiplier:.1f}x)"
-    elif current_multiplier >= 1.5:
+        volume_info['volume_status'] = f"Exceptional Volume ({volume_multiplier:.1f}x)"
+    elif volume_multiplier >= 1.5:
         volume_score += 20
         volume_info['strong_volume'] = True
-        volume_info['volume_status'] = f"Strong Volume ({current_multiplier:.1f}x)"
-    elif current_multiplier >= 1.3:
+        volume_info['volume_status'] = f"Strong Volume ({volume_multiplier:.1f}x)"
+    elif volume_multiplier >= 1.3:
         volume_score += 15
         volume_info['good_volume'] = True
-        volume_info['volume_status'] = f"Good Volume ({current_multiplier:.1f}x)"
+        volume_info['volume_status'] = f"Good Volume ({volume_multiplier:.1f}x)"
     else:
-        volume_info['volume_status'] = f"Weak Volume ({current_multiplier:.1f}x)"
+        volume_info['volume_status'] = f"Weak Volume ({volume_multiplier:.1f}x)"
     
-    # Volume trend analysis from right shoulder to current
-    rs_idx = pattern['right_shoulder']['idx']
-    if len(data) - rs_idx > 3:
-        recent_volume_trend = data['Volume'].iloc[rs_idx:].mean() / data['Volume'].iloc[rs_idx-10:rs_idx].mean()
-        if recent_volume_trend > 1.2:
+    # Check for classic IHS volume pattern (optional bonus)
+    try:
+        left_vol = data['Volume'].iloc[pattern['left_shoulder']['idx_pos']]
+        head_vol = data['Volume'].iloc[pattern['head']['idx_pos']]
+        right_vol = data['Volume'].iloc[pattern['right_shoulder']['idx_pos']]
+        
+        # Classic pattern: diminishing volume through pattern
+        if left_vol > head_vol and head_vol > right_vol:
+            volume_score += 15
+            volume_info['classic_volume_pattern'] = True
+        elif left_vol > right_vol:
             volume_score += 10
-            volume_info['increasing_volume_trend'] = True
+            volume_info['diminishing_volume_pattern'] = True
+    except:
+        pass  # Don't fail if volume analysis has issues
     
     return volume_score, volume_info
-
-def check_pattern_invalidation(data, pattern):
-    """Check for pattern invalidation conditions"""
-    issues = {}
-    current_price = data['Close'].iloc[-1]
-    
-    # Check if price has fallen below head (major invalidation)
-    if current_price < pattern['head']['price'] * 0.98:
-        issues['major_invalidation'] = "Price below head level"
-        issues['pattern_broken'] = True
-    
-    # Check if price is far below right shoulder
-    elif current_price < pattern['right_shoulder']['price'] * 0.95:
-        issues['minor_invalidation'] = "Price significantly below right shoulder"
-    
-    return issues
 
 def detect_pattern(data, pattern_type, market_context, timeframe="daily"):
     """Main pattern detection function with enhanced volume analysis and timing awareness"""
