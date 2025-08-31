@@ -1,5 +1,5 @@
 # pattern_detectors.py
-# Pattern Detector V8.1 - Pattern Detection Algorithms
+# Pattern Detector V8.1 - Minimal Working Version
 
 import numpy as np
 from config import (
@@ -32,18 +32,18 @@ def analyze_volume_pattern(data, pattern_type, pattern_info):
     if volume_multiplier >= VOLUME_THRESHOLDS['exceptional']:
         volume_score += VOLUME_SCORE_POINTS['exceptional']
         volume_info['exceptional_volume'] = True
-        volume_info['volume_status'] = "Exceptional Volume ({:.1f}x)".format(volume_multiplier)
+        volume_info['volume_status'] = "Exceptional Volume (" + str(round(volume_multiplier, 1)) + "x)"
     elif volume_multiplier >= VOLUME_THRESHOLDS['strong']:
         volume_score += VOLUME_SCORE_POINTS['strong']
         volume_info['strong_volume'] = True
-        volume_info['volume_status'] = "Strong Volume ({:.1f}x)".format(volume_multiplier)
+        volume_info['volume_status'] = "Strong Volume (" + str(round(volume_multiplier, 1)) + "x)"
     elif volume_multiplier >= VOLUME_THRESHOLDS['good']:
         volume_score += VOLUME_SCORE_POINTS['good']
         volume_info['good_volume'] = True
-        volume_info['volume_status'] = "Good Volume ({:.1f}x)".format(volume_multiplier)
+        volume_info['volume_status'] = "Good Volume (" + str(round(volume_multiplier, 1)) + "x)"
     else:
         volume_info['weak_volume'] = True
-        volume_info['volume_status'] = "Weak Volume ({:.1f}x)".format(volume_multiplier)
+        volume_info['volume_status'] = "Weak Volume (" + str(round(volume_multiplier, 1)) + "x)"
     
     # Pattern-specific volume analysis
     if pattern_type == "Bull Flag":
@@ -127,7 +127,7 @@ def analyze_volume_pattern(data, pattern_type, pattern_info):
     return volume_score, volume_info
 
 def detect_inside_bar(data, macd_line, signal_line, histogram, market_context, timeframe="daily"):
-    """Detect Inside Bar pattern - buy-only with specific entry rules and color requirements"""
+    """Detect Inside Bar pattern"""
     confidence = 0
     pattern_info = {}
     
@@ -144,24 +144,21 @@ def detect_inside_bar(data, macd_line, signal_line, histogram, market_context, t
         aging_threshold = -6
         pattern_info['timeframe'] = 'Daily'
     
-    # Look for inside bar pattern (max 2 inside bars)
+    # Look for inside bar pattern
     mother_bar_idx = None
     inside_bars_count = 0
     inside_bar_indices = []
     
-    # Start from the most recent bar and look backwards
     for i in max_lookback_range:
         try:
             current_bar = data.iloc[i]
             previous_bar = data.iloc[i-1]
             
-            # Check if current bar is inside previous bar
             is_inside = (current_bar['High'] <= previous_bar['High'] and 
                         current_bar['Low'] >= previous_bar['Low'] and
                         current_bar['High'] < previous_bar['High'] and
                         current_bar['Low'] > previous_bar['Low'])
             
-            # Color validation: Mother bar must be green, inside bar must be red
             mother_is_green = previous_bar['Close'] > previous_bar['Open']
             inside_is_red = current_bar['Close'] < current_bar['Open']
             
@@ -184,18 +181,15 @@ def detect_inside_bar(data, macd_line, signal_line, histogram, market_context, t
     if inside_bars_count == 0:
         return confidence, pattern_info
     
-    # Get mother bar and inside bar(s) data
     mother_bar = data.iloc[mother_bar_idx]
     latest_inside_bar = data.iloc[inside_bar_indices[0]]
     
-    # Validate color requirements one more time
     mother_is_green = mother_bar['Close'] > mother_bar['Open']
     inside_is_red = latest_inside_bar['Close'] < latest_inside_bar['Open']
     
     if not (mother_is_green and inside_is_red):
         return confidence, pattern_info
     
-    # Base confidence for pattern formation
     base_confidence = 35 if timeframe == "1wk" else 30
     confidence += base_confidence
     
@@ -208,11 +202,9 @@ def detect_inside_bar(data, macd_line, signal_line, histogram, market_context, t
     pattern_info['mother_bar_color'] = 'Green'
     pattern_info['inside_bar_color'] = 'Red'
     
-    # Bonus for proper color combination
     confidence += 15
     pattern_info['proper_color_combo'] = True
     
-    # Prefer single inside bar over double
     if inside_bars_count == 1:
         confidence += 15
         pattern_info['single_inside_bar'] = True
@@ -220,15 +212,13 @@ def detect_inside_bar(data, macd_line, signal_line, histogram, market_context, t
         confidence += 10
         pattern_info['double_inside_bar'] = True
     
-    # Calculate inside bar size relative to mother bar
     mother_bar_range = mother_bar['High'] - mother_bar['Low']
     inside_bar_range = latest_inside_bar['High'] - latest_inside_bar['Low']
     
     if mother_bar_range > 0:
         size_ratio = inside_bar_range / mother_bar_range
-        pattern_info['size_ratio'] = "{:.1%}".format(size_ratio)
+        pattern_info['size_ratio'] = str(round(size_ratio * 100, 1)) + "%"
         
-        # Get thresholds based on timeframe
         thresholds = PATTERN_THRESHOLDS["Inside Bar"]
         tight_threshold = thresholds['tight_consolidation_weekly'] if timeframe == "1wk" else thresholds['tight_consolidation']
         good_threshold = thresholds['good_consolidation_weekly'] if timeframe == "1wk" else thresholds['good_consolidation']
@@ -246,18 +236,6 @@ def detect_inside_bar(data, macd_line, signal_line, histogram, market_context, t
         else:
             confidence += 5
     
-    # Check position within mother bar
-    mother_bar_midpoint = (mother_bar['High'] + mother_bar['Low']) / 2
-    inside_bar_midpoint = (latest_inside_bar['High'] + latest_inside_bar['Low']) / 2
-    
-    distance_from_middle = abs(inside_bar_midpoint - mother_bar_midpoint) / mother_bar_range
-    if distance_from_middle < 0.25:
-        confidence += 10
-        pattern_info['centered_inside_bar'] = True
-    elif distance_from_middle < 0.35:
-        confidence += 5
-        pattern_info['well_positioned'] = True
-    
     # Technical confirmation
     if macd_line.iloc[-1] > signal_line.iloc[-1]:
         confidence += 15
@@ -267,23 +245,19 @@ def detect_inside_bar(data, macd_line, signal_line, histogram, market_context, t
         confidence += 10
         pattern_info['momentum_improving'] = True
     
-    # Current price should be near inside bar range for valid setup
     current_price = data['Close'].iloc[-1]
     if current_price >= latest_inside_bar['Low'] * 0.98:
         confidence += 10
         pattern_info['price_in_range'] = True
     
-    # Volume analysis
     volume_score, volume_info = analyze_volume_pattern(data, "Inside Bar", pattern_info)
     confidence += volume_score
     pattern_info.update(volume_info)
     
-    # Apply volume confirmation cap
     if not (volume_info.get('good_volume') or volume_info.get('strong_volume') or volume_info.get('exceptional_volume')):
         confidence = min(confidence, MAX_CONFIDENCE_WITHOUT_VOLUME)
         pattern_info['confidence_capped'] = "No volume confirmation"
     
-    # Pattern age check
     if mother_bar_idx <= aging_threshold:
         aging_penalty = 0.7 if timeframe == "1wk" else 0.8
         confidence *= aging_penalty
@@ -313,7 +287,7 @@ def detect_flat_top(data, macd_line, signal_line, histogram, market_context):
         return confidence, pattern_info
     
     confidence += 25
-    pattern_info['initial_ascension'] = "{:.1f}%".format(initial_gain*100)
+    pattern_info['initial_ascension'] = str(round(initial_gain * 100, 1)) + "%"
     
     descent_data = data.iloc[-ascent_end:-10]
     descent_low = descent_data['Low'].min()
@@ -348,22 +322,22 @@ def detect_flat_top(data, macd_line, signal_line, histogram, market_context):
     days_old = next((i for i in range(1, 11) if data['High'].iloc[-i] >= resistance_level * thresholds['resistance_tolerance']), 11)
     
     if days_old > PATTERN_AGE_LIMITS['daily']['Flat Top Breakout']:
-        return confidence * 0.5, dict(pattern_info, pattern_stale=True, days_old=days_old)
+        confidence = confidence * 0.5
+        pattern_info['pattern_stale'] = True
+        pattern_info['days_old'] = days_old
+        return confidence, pattern_info
     
     if current_price < descent_low * 0.95:
         return 0, {'pattern_broken': True, 'break_reason': 'Below support'}
     
-    # Technical confirmation
     if macd_line.iloc[-1] > signal_line.iloc[-1]:
         confidence += 10
         pattern_info['macd_bullish'] = True
     
-    # Volume analysis
     volume_score, volume_info = analyze_volume_pattern(data, "Flat Top Breakout", pattern_info)
     confidence += volume_score
     pattern_info.update(volume_info)
     
-    # Apply volume confirmation cap
     if not (volume_info.get('good_volume') or volume_info.get('strong_volume') or volume_info.get('exceptional_volume')):
         confidence = min(confidence, MAX_CONFIDENCE_WITHOUT_VOLUME)
         pattern_info['confidence_capped'] = "No volume confirmation"
@@ -391,7 +365,7 @@ def detect_bull_flag(data, macd_line, signal_line, histogram, market_context):
         return confidence, pattern_info
     
     confidence += 25
-    pattern_info['flagpole_gain'] = "{:.1f}%".format(flagpole_gain*100)
+    pattern_info['flagpole_gain'] = str(round(flagpole_gain * 100, 1)) + "%"
     
     flag_data = data.tail(15)
     flag_start = data['Close'].iloc[-flagpole_end]
@@ -401,7 +375,7 @@ def detect_bull_flag(data, macd_line, signal_line, histogram, market_context):
     pullback_range = thresholds['pullback_range']
     if pullback_range[0] <= pullback <= pullback_range[1]:
         confidence += 20
-        pattern_info['flag_pullback'] = "{:.1f}%".format(pullback*100)
+        pattern_info['flag_pullback'] = str(round(pullback * 100, 1)) + "%"
         pattern_info['healthy_pullback'] = True
     
     # Invalidation checks
@@ -417,11 +391,13 @@ def detect_bull_flag(data, macd_line, signal_line, histogram, market_context):
     days_old = next((i for i in range(1, 11) if data['High'].iloc[-i] == flag_high), 11)
     
     if days_old > PATTERN_AGE_LIMITS['daily']['Bull Flag']:
-        return confidence * 0.5, dict(pattern_info, pattern_stale=True, days_old=days_old)
+        confidence = confidence * 0.5
+        pattern_info['pattern_stale'] = True
+        pattern_info['days_old'] = days_old
+        return confidence, pattern_info
     
     pattern_info['days_since_high'] = days_old
     
-    # Technical confirmation
     if macd_line.iloc[-1] > signal_line.iloc[-1]:
         confidence += 15
         pattern_info['macd_bullish'] = True
@@ -430,17 +406,14 @@ def detect_bull_flag(data, macd_line, signal_line, histogram, market_context):
         confidence += 10
         pattern_info['momentum_recovering'] = True
     
-    # Volume analysis
     volume_score, volume_info = analyze_volume_pattern(data, "Bull Flag", pattern_info)
     confidence += volume_score
     pattern_info.update(volume_info)
     
-    # Near breakout bonus
     if current_price >= flag_high * 0.95:
         confidence += 10
         pattern_info['near_breakout'] = True
     
-    # Apply volume confirmation cap
     if not (volume_info.get('good_volume') or volume_info.get('strong_volume') or volume_info.get('exceptional_volume')):
         confidence = min(confidence, MAX_CONFIDENCE_WITHOUT_VOLUME)
         pattern_info['confidence_capped'] = "No volume confirmation"
@@ -478,7 +451,7 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
         return confidence, pattern_info
     
     confidence += 25
-    pattern_info['cup_depth'] = "{:.1f}%".format(cup_depth*100)
+    pattern_info['cup_depth'] = str(round(cup_depth * 100, 1)) + "%"
     
     # Handle analysis
     if handle_days > 0:
@@ -488,32 +461,30 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
         
         if handle_depth > thresholds['max_handle_depth']:
             confidence += 10
-            pattern_info['deep_handle'] = "{:.1f}%".format(handle_depth*100)
+            pattern_info['deep_handle'] = str(round(handle_depth * 100, 1)) + "%"
         elif handle_depth <= 0.08:
             confidence += 20
-            pattern_info['perfect_handle'] = "{:.1f}%".format(handle_depth*100)
+            pattern_info['perfect_handle'] = str(round(handle_depth * 100, 1)) + "%"
         elif handle_depth <= 0.15:
             confidence += 15
-            pattern_info['good_handle'] = "{:.1f}%".format(handle_depth*100)
+            pattern_info['good_handle'] = str(round(handle_depth * 100, 1)) + "%"
         else:
             confidence += 10
-            pattern_info['acceptable_handle'] = "{:.1f}%".format(handle_depth*100)
+            pattern_info['acceptable_handle'] = str(round(handle_depth * 100, 1)) + "%"
         
-        # Handle length analysis
         if handle_days > 25:
             confidence *= 0.8
-            pattern_info['long_handle'] = "{} days".format(handle_days)
+            pattern_info['long_handle'] = str(handle_days) + " days"
         elif handle_days <= 10:
             confidence += 10
-            pattern_info['short_handle'] = "{} days".format(handle_days)
+            pattern_info['short_handle'] = str(handle_days) + " days"
         elif handle_days <= 20:
             confidence += 5
-            pattern_info['medium_handle'] = "{} days".format(handle_days)
+            pattern_info['medium_handle'] = str(handle_days) + " days"
     else:
         confidence += 10
         pattern_info['forming_handle'] = "Handle forming"
     
-    # Position analysis
     current_price = data['Close'].iloc[-1]
     breakout_level = max(cup_start, cup_right)
     
@@ -529,12 +500,10 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
             confidence *= 0.8
             pattern_info['below_handle'] = True
     
-    # Technical confirmation
     if macd_line.iloc[-1] > signal_line.iloc[-1]:
         confidence += 10
         pattern_info['macd_bullish'] = True
     
-    # Volume analysis
     volume_score, volume_info = analyze_volume_pattern(data, "Cup Handle", pattern_info)
     confidence += volume_score
     pattern_info.update(volume_info)
@@ -542,7 +511,6 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
     if confidence < 35:
         return confidence, pattern_info
     
-    # Apply volume confirmation cap
     if not (volume_info.get('good_volume') or volume_info.get('strong_volume') or volume_info.get('exceptional_volume')):
         confidence = min(confidence, MAX_CONFIDENCE_WITHOUT_VOLUME)
         pattern_info['confidence_capped'] = "No volume confirmation"
@@ -550,82 +518,113 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
     return confidence, pattern_info
 
 def detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, market_context, timeframe="daily"):
-    """
-    Simplified Inverse Head and Shoulders Detection
-    """
+    """Simple Inverse Head and Shoulders Detection"""
     confidence = 0
     pattern_info = {}
     
     if len(data) < 30:
         return confidence, pattern_info
     
-    # Look for pattern in recent data
-    lookback_period = min(80, len(data))
-    recent_data = data.tail(lookback_period)
+    # Simple 3-low detection
+    lookback = min(60, len(data))
+    recent_data = data.tail(lookback)
     
     if len(recent_data) < 20:
         return confidence, pattern_info
     
-    # Find potential pattern
-    pattern = find_simple_inverse_hs_pattern(recent_data)
+    # Find lowest point (head)
+    head_idx = recent_data['Low'].idxmin()
+    head_idx_pos = recent_data.index.get_loc(head_idx)
+    head_price = recent_data['Low'].loc[head_idx]
     
-    if not pattern:
+    # Need buffer around head
+    if head_idx_pos < 5 or head_idx_pos > len(recent_data) - 5:
+        return confidence, pattern_info
+    
+    # Find left shoulder
+    left_data = recent_data.iloc[:head_idx_pos]
+    if len(left_data) < 5:
+        return confidence, pattern_info
+    
+    left_candidates = []
+    for i in range(2, len(left_data) - 2):
+        price = left_data['Low'].iloc[i]
+        if price <= left_data['Low'].iloc[i-2:i+3].min() and price > head_price:
+            left_candidates.append({'idx_pos': i, 'price': price})
+    
+    if not left_candidates:
+        return confidence, pattern_info
+    
+    left_shoulder = min(left_candidates, key=lambda x: x['price'])
+    
+    # Find right shoulder
+    right_data = recent_data.iloc[head_idx_pos:]
+    if len(right_data) < 5:
+        return confidence, pattern_info
+    
+    right_candidates = []
+    for i in range(2, len(right_data) - 2):
+        price = right_data['Low'].iloc[i]
+        if price <= right_data['Low'].iloc[i-2:i+3].min() and price > head_price:
+            right_candidates.append({'idx_pos': head_idx_pos + i, 'price': price})
+    
+    if not right_candidates:
+        return confidence, pattern_info
+    
+    right_shoulder = min(right_candidates, key=lambda x: x['price'])
+    
+    # Find neckline
+    left_neck_data = recent_data.iloc[left_shoulder['idx_pos']:head_idx_pos]
+    right_neck_data = recent_data.iloc[head_idx_pos:right_shoulder['idx_pos']]
+    
+    if len(left_neck_data) < 2 or len(right_neck_data) < 2:
+        return confidence, pattern_info
+    
+    left_neck_price = left_neck_data['High'].max()
+    right_neck_price = right_neck_data['High'].max()
+    
+    # Calculate metrics
+    avg_shoulder_price = (left_shoulder['price'] + right_shoulder['price']) / 2
+    head_depth = (avg_shoulder_price - head_price) / avg_shoulder_price
+    
+    pattern_width = right_shoulder['idx_pos'] - left_shoulder['idx_pos']
+    
+    # Basic validation
+    if head_depth < 0.02 or pattern_width < 8 or pattern_width > 100:
         return confidence, pattern_info
     
     # Base confidence
-    confidence = 40
+    confidence = 50
     
-    # Clean pattern info formatting
+    # Pattern info
     pattern_info.update({
-        'left_shoulder_price': round(pattern['left_shoulder']['price'], 2),
-        'head_price': round(pattern['head']['price'], 2), 
-        'right_shoulder_price': round(pattern['right_shoulder']['price'], 2),
-        'left_neck_price': round(pattern['left_neck']['price'], 2),
-        'right_neck_price': round(pattern['right_neck']['price'], 2),
-        'head_depth_percent': "{:.1f}%".format(pattern['head_depth']*100),
-        'shoulder_symmetry_score': "{:.2f}".format(pattern['symmetry']),
-        'pattern_width_bars': int(pattern['width'])
+        'left_shoulder_price': round(left_shoulder['price'], 2),
+        'head_price': round(head_price, 2),
+        'right_shoulder_price': round(right_shoulder['price'], 2),
+        'left_neck_price': round(left_neck_price, 2),
+        'right_neck_price': round(right_neck_price, 2),
+        'head_depth_percent': str(round(head_depth * 100, 1)) + "%",
+        'pattern_width_bars': int(pattern_width)
     })
     
-    # Validate head depth
-    if pattern['head_depth'] >= 0.03:
+    # Depth scoring
+    if head_depth >= 0.05:
         confidence += 15
-        if pattern['head_depth'] >= 0.08:
+        if head_depth >= 0.10:
             confidence += 10
             pattern_info['good_head_depth'] = True
     
-    # Validate shoulder positioning
-    if pattern['symmetry'] > 0.3:
-        confidence += 10
-        if pattern['symmetry'] > 0.6:
-            confidence += 10
-            pattern_info['good_symmetry'] = True
-        if pattern['symmetry'] > 0.8:
-            confidence += 10
-            pattern_info['excellent_symmetry'] = True
-    
-    # Check current position relative to neckline
+    # Position relative to neckline
     current_price = data['Close'].iloc[-1]
-    neckline_price = (pattern['left_neck']['price'] + pattern['right_neck']['price']) / 2
+    neckline_price = (left_neck_price + right_neck_price) / 2
     
-    distance_to_neckline = (neckline_price - current_price) / current_price
-    if abs(distance_to_neckline) < 0.05:
+    distance_to_neckline = abs(neckline_price - current_price) / current_price
+    if distance_to_neckline < 0.05:
         confidence += 15
         pattern_info['near_breakout'] = True
-    elif abs(distance_to_neckline) < 0.10:
+    elif distance_to_neckline < 0.10:
         confidence += 10
         pattern_info['approaching_neckline'] = True
-    
-    # Neckline slope analysis
-    neckline_slope = (pattern['right_neck']['price'] - pattern['left_neck']['price']) / pattern['width']
-    pattern_info['neckline_slope'] = round(neckline_slope, 4)
-    
-    if neckline_slope <= 0:
-        confidence += 10
-        if neckline_slope < -0.01:
-            pattern_info['ideal_downward_neckline'] = True
-        else:
-            pattern_info['flat_neckline'] = True
     
     # Technical indicators
     if macd_line.iloc[-1] > signal_line.iloc[-1]:
@@ -637,17 +636,35 @@ def detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, marke
         pattern_info['momentum_improving'] = True
     
     # Volume analysis
-    volume_score, volume_info = analyze_simple_ihs_volume(data, pattern)
+    avg_volume = data['Volume'].tail(20).mean()
+    current_volume = data['Volume'].iloc[-1]
+    volume_multiplier = current_volume / avg_volume
+    
+    volume_score = 0
+    if volume_multiplier >= 2.0:
+        volume_score += 25
+        pattern_info['exceptional_volume'] = True
+        pattern_info['volume_status'] = "Exceptional Volume (" + str(round(volume_multiplier, 1)) + "x)"
+    elif volume_multiplier >= 1.5:
+        volume_score += 20
+        pattern_info['strong_volume'] = True
+        pattern_info['volume_status'] = "Strong Volume (" + str(round(volume_multiplier, 1)) + "x)"
+    elif volume_multiplier >= 1.3:
+        volume_score += 15
+        pattern_info['good_volume'] = True
+        pattern_info['volume_status'] = "Good Volume (" + str(round(volume_multiplier, 1)) + "x)"
+    else:
+        pattern_info['volume_status'] = "Weak Volume (" + str(round(volume_multiplier, 1)) + "x)"
+    
     confidence += volume_score
-    pattern_info.update(volume_info)
     
     # Apply volume confirmation cap
-    if not (volume_info.get('good_volume') or volume_info.get('strong_volume') or volume_info.get('exceptional_volume')):
+    if not (pattern_info.get('good_volume') or pattern_info.get('strong_volume') or pattern_info.get('exceptional_volume')):
         confidence = min(confidence, 70)
         pattern_info['confidence_capped'] = "No volume confirmation"
     
-    # Pattern age penalty
-    bars_since_pattern = len(data) - pattern['right_shoulder']['idx_pos']
+    # Age penalty
+    bars_since_pattern = len(data) - right_shoulder['idx_pos']
     age_limit = 25 if timeframe == "1wk" else 35
     
     if bars_since_pattern > age_limit:
@@ -656,22 +673,51 @@ def detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, marke
         pattern_info['age_bars'] = int(bars_since_pattern)
     
     # Invalidation check
-    if current_price < pattern['head']['price'] * 0.97:
+    if current_price < head_price * 0.97:
         confidence *= 0.6
         pattern_info['below_head_warning'] = "Price near/below head level"
     
     return confidence, pattern_info
 
-def find_simple_inverse_hs_pattern(data):
-    """Simplified pattern finding"""
+def detect_pattern(data, pattern_type, market_context, timeframe="daily"):
+    """Main pattern detection function"""
+    if len(data) < 10:
+        return False, 0, {}
     
-    if len(data) < 15:
-        return None
+    # Calculate MACD components
+    ema_fast = data['Close'].ewm(span=12).mean()
+    ema_slow = data['Close'].ewm(span=26).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=9).mean()
+    histogram = macd_line - signal_line
     
-    # Find the overall lowest point as head candidate
-    head_idx = data['Low'].idxmin()
-    head_idx_pos = data.index.get_loc(head_idx)
+    confidence = 0
+    pattern_info = {}
     
-    # Need some data on both sides of head
-    if head_idx_pos < 5 or head_idx_pos > len(data) - 5:
-        return None
+    # Route to appropriate pattern detector
+    if pattern_type == "Flat Top Breakout":
+        confidence, pattern_info = detect_flat_top(data, macd_line, signal_line, histogram, market_context)
+        confidence = min(confidence, 100)
+        
+    elif pattern_type == "Bull Flag":
+        confidence, pattern_info = detect_bull_flag(data, macd_line, signal_line, histogram, market_context)
+        confidence = min(confidence * 1.05, 100)
+        
+    elif pattern_type == "Cup Handle":
+        confidence, pattern_info = detect_cup_handle(data, macd_line, signal_line, histogram, market_context)
+        confidence = min(confidence * 1.1, 100)
+        
+    elif pattern_type == "Inside Bar":
+        confidence, pattern_info = detect_inside_bar(data, macd_line, signal_line, histogram, market_context, timeframe)
+        confidence = min(confidence, 100)
+        
+    elif pattern_type == "Inverse Head Shoulders":
+        confidence, pattern_info = detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, market_context, timeframe)
+        confidence = min(confidence, 100)
+    
+    # Add MACD data to pattern info for charting
+    pattern_info['macd_line'] = macd_line
+    pattern_info['signal_line'] = signal_line
+    pattern_info['histogram'] = histogram
+    
+    return confidence >= 55, confidence, pattern_info
