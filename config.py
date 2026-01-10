@@ -1,10 +1,11 @@
 # config.py
-# Pattern Detector V8.0 - Configuration Settings
+# Pattern Detector V8.2.1 - Configuration Settings
+# SWING TRADING OPTIMIZED - 1-3 Week Hold Periods
 
 # Application Settings
-APP_TITLE = "Pro Pattern Detector v8.1"
-APP_SUBTITLE = "Enhanced with Inverse Head & Shoulders - Professional Pattern Recognition"
-VERSION = "8.1"
+APP_TITLE = "Pro Pattern Detector v8.2.1"
+APP_SUBTITLE = "Swing Trading Optimized - Professional Pattern Recognition"
+VERSION = "8.2.1"
 
 # Pattern Detection Settings
 PATTERNS = ["Flat Top Breakout", "Bull Flag", "Cup Handle", "Inside Bar", "Inverse Head Shoulders"]
@@ -52,21 +53,21 @@ MARKET_TIMING_ADJUSTMENTS = {
     "monday_gap_check": True
 }
 
-# Pattern Age Limits (days)
+# Pattern Age Limits (days/weeks) - OPTIMIZED FOR SWING TRADING
 PATTERN_AGE_LIMITS = {
     "daily": {
         "Flat Top Breakout": 8,
         "Bull Flag": 10,
-        "Cup Handle": 30,
+        "Cup Handle": 35,              # CHANGED from 30 - allows fuller base formation
         "Inside Bar": 6,
-        "Inverse Head Shoulders": 30
+        "Inverse Head Shoulders": 50   # CHANGED from 30 - H&S takes longer to form
     },
     "weekly": {
         "Flat Top Breakout": 8,  # weeks
         "Bull Flag": 10,         # weeks
-        "Cup Handle": 30,        # weeks
+        "Cup Handle": 25,        # CHANGED from 30 - tighter for weekly
         "Inside Bar": 8,         # weeks
-        "Inverse Head Shoulders": 20  # weeks
+        "Inverse Head Shoulders": 35  # CHANGED from 20 - allows proper formation
     }
 }
 
@@ -108,7 +109,7 @@ INDICATOR_PERIODS = {
     "volume_sma": 20
 }
 
-# Pattern Detection Thresholds
+# Pattern Detection Thresholds - SWING TRADING OPTIMIZED
 PATTERN_THRESHOLDS = {
     "Flat Top Breakout": {
         "min_initial_gain": 0.10,  # 10%
@@ -121,9 +122,11 @@ PATTERN_THRESHOLDS = {
         "flag_tolerance": 0.95
     },
     "Cup Handle": {
-        "min_cup_depth": 0.08,     # 8%
-        "max_cup_depth": 0.60,     # 60%
-        "max_handle_depth": 0.25   # 25%
+        "min_cup_depth": 0.08,      # 8% - catches early bases
+        "max_cup_depth": 0.30,      # 30% - CHANGED from 60% (swing trade focus)
+        "max_handle_depth": 0.18,   # 18% - CHANGED from 25% (tighter handles)
+        "ideal_cup_depth": 0.15,    # NEW - 15% is sweet spot for 2-4 week targets
+        "ideal_handle_depth": 0.10  # NEW - 10% handle indicates strong setup
     },
     "Inside Bar": {
         "tight_consolidation": 0.30,    # 30% of mother bar (daily)
@@ -135,16 +138,22 @@ PATTERN_THRESHOLDS = {
     },
     "Inverse Head Shoulders": {
         "min_head_depth": 0.05,     # 5% minimum depth
-        "max_head_depth": 0.60,     # 60% maximum depth
-        "min_symmetry": 0.5,        # 50% symmetry minimum
-        "min_pattern_width_daily": 20,   # 20 days minimum
-        "max_pattern_width_daily": 60,   # 60 days maximum
-        "min_pattern_width_weekly": 15,  # 15 weeks minimum
-        "max_pattern_width_weekly": 40,  # 40 weeks maximum
+        "max_head_depth": 0.40,     # 40% - CHANGED from 60% (swing trade focus)
+        "min_symmetry": 0.40,       # 40% - CHANGED from 50% (more patterns, still reliable)
+        "good_symmetry": 0.50,      # NEW - bonus threshold
+        "excellent_symmetry": 0.70, # NEW - high confidence threshold
+        "min_pattern_width_daily": 15,   # 15 days - CHANGED from 20 (catches faster patterns)
+        "max_pattern_width_daily": 50,   # 50 days - CHANGED from 60 (swing focus)
+        "min_pattern_width_weekly": 12,  # 12 weeks - CHANGED from 15
+        "max_pattern_width_weekly": 35,  # 35 weeks - CHANGED from 40
         "impulsive_move_threshold": 0.6,  # 60% impulsive bars required
-        "ideal_head_depth": 0.15,        # 15% ideal depth
-        "pivot_strength_daily": 5,       # 5/5 pivot validation
-        "pivot_strength_weekly": 4       # 4/4 pivot validation for weekly
+        "ideal_head_depth": 0.15,        # 15% ideal depth (good for 2-4 week targets)
+        "ideal_head_depth_max": 0.20,    # NEW - upper bound of ideal range
+        "pivot_strength_daily": 4,       # 4 - CHANGED from 5 (more flexible, still quality)
+        "strict_pivot_strength_daily": 5, # NEW - bonus for perfect pivots
+        "pivot_strength_weekly": 4,      # 4 (keep)
+        "compact_pattern_days": 20,      # NEW - bonus if pattern forms quickly
+        "extended_pattern_days": 40      # NEW - penalty if pattern takes too long
     }
 }
 
