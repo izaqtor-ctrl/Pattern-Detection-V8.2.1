@@ -462,7 +462,7 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
         pattern_info['ideal_cup_depth'] = True
     elif cup_depth > thresholds['max_cup_depth'] * 0.8:  # Very deep (>24%)
         confidence *= 0.85  # Slight penalty - takes longer to recover
-        pattern_info['deep_cup'] = True"
+        pattern_info['deep_cup'] = True
     
     # Handle analysis
     if handle_days > 0:
