@@ -1,5 +1,5 @@
 # pattern_detectors.py
-# Pattern Detector V8.1 - Minimal Working Version
+# Pattern Detector V8.2.1 - Swing Trading Optimized with Bug Fixes
 
 import numpy as np
 from config import (
@@ -450,8 +450,19 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
     if cup_right < cup_start * 0.75:
         return confidence, pattern_info
     
+    # Base confidence for valid cup
     confidence += 25
     pattern_info['cup_depth'] = str(round(cup_depth * 100, 1)) + "%"
+    
+    # Bonus for ideal cup depth (10-18% is sweet spot for swing trading)
+    ideal_min = thresholds.get('ideal_cup_depth', 0.12) - 0.03
+    ideal_max = thresholds.get('ideal_cup_depth', 0.15) + 0.03
+    if ideal_min <= cup_depth <= ideal_max:
+        confidence += 15
+        pattern_info['ideal_cup_depth'] = True
+    elif cup_depth > thresholds['max_cup_depth'] * 0.8:  # Very deep (>24%)
+        confidence *= 0.85  # Slight penalty - takes longer to recover
+        pattern_info['deep_cup'] = True"
     
     # Handle analysis
     if handle_days > 0:
@@ -460,8 +471,8 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
         handle_depth = (cup_right - handle_low) / cup_right
         
         if handle_depth > thresholds['max_handle_depth']:
-            confidence += 10
-            pattern_info['deep_handle'] = str(round(handle_depth * 100, 1)) + "%"
+            confidence *= 0.6  # FIXED: Penalize deep handles (was incorrectly rewarding)
+            pattern_info['handle_too_deep'] = str(round(handle_depth * 100, 1)) + "% (exceeds max)"
         elif handle_depth <= 0.08:
             confidence += 20
             pattern_info['perfect_handle'] = str(round(handle_depth * 100, 1)) + "%"
@@ -589,9 +600,20 @@ def detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, marke
     
     pattern_width = right_shoulder['idx_pos'] - left_shoulder['idx_pos']
     
-    # Basic validation
-    if head_depth < 0.02 or pattern_width < 8 or pattern_width > 100:
+    # Get thresholds from config
+    thresholds = PATTERN_THRESHOLDS["Inverse Head Shoulders"]
+    min_width = thresholds.get('min_pattern_width_daily', 15) if timeframe != "1wk" else thresholds.get('min_pattern_width_weekly', 12)
+    max_width = thresholds.get('max_pattern_width_daily', 50) if timeframe != "1wk" else thresholds.get('max_pattern_width_weekly', 35)
+    
+    # Basic validation using config thresholds
+    if head_depth < thresholds['min_head_depth'] or pattern_width < min_width or pattern_width > max_width:
         return confidence, pattern_info
+    
+    # Check maximum head depth
+    if head_depth > thresholds['max_head_depth']:
+        confidence *= 0.6  # Major penalty for too deep (takes too long to recover)
+        pattern_info['head_too_deep'] = str(round(head_depth * 100, 1)) + "%"
+        # Still continue but with reduced confidence
     
     # Base confidence
     confidence = 50
@@ -607,12 +629,32 @@ def detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, marke
         'pattern_width_bars': int(pattern_width)
     })
     
-    # Depth scoring
-    if head_depth >= 0.05:
-        confidence += 15
-        if head_depth >= 0.10:
-            confidence += 10
-            pattern_info['good_head_depth'] = True
+    # Depth scoring - favor ideal range for swing trading
+    ideal_min = thresholds.get('ideal_head_depth', 0.15) - 0.05  # 10%
+    ideal_max = thresholds.get('ideal_head_depth_max', 0.20)     # 20%
+    
+    if ideal_min <= head_depth <= ideal_max:
+        confidence += 20
+        pattern_info['ideal_head_depth'] = True
+    elif head_depth >= thresholds['min_head_depth']:
+        confidence += 12
+        pattern_info['acceptable_head_depth'] = True
+    
+    # Additional bonus for good depth range
+    if 0.10 <= head_depth <= 0.25:
+        confidence += 8
+        pattern_info['good_head_depth'] = True
+    
+    # Pattern width bonuses/penalties for swing trading
+    compact_threshold = thresholds.get('compact_pattern_days', 20)
+    extended_threshold = thresholds.get('extended_pattern_days', 40)
+    
+    if pattern_width <= compact_threshold:
+        confidence += 8
+        pattern_info['compact_pattern'] = True
+    elif pattern_width >= extended_threshold:
+        confidence *= 0.90  # Slight penalty for extended patterns
+        pattern_info['extended_pattern'] = True
     
     # Position relative to neckline
     current_price = data['Close'].iloc[-1]
@@ -663,9 +705,35 @@ def detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, marke
         confidence = min(confidence, 70)
         pattern_info['confidence_capped'] = "No volume confirmation"
     
-    # Age penalty
+    # Symmetry scoring (if we can calculate it)
+    try:
+        shoulder_price_diff = abs(left_shoulder['price'] - right_shoulder['price'])
+        avg_shoulder_price = (left_shoulder['price'] + right_shoulder['price']) / 2
+        symmetry_score = 1 - (shoulder_price_diff / avg_shoulder_price)
+        
+        excellent_sym = thresholds.get('excellent_symmetry', 0.70)
+        good_sym = thresholds.get('good_symmetry', 0.50)
+        min_sym = thresholds.get('min_symmetry', 0.40)
+        
+        if symmetry_score >= excellent_sym:
+            confidence += 15
+            pattern_info['excellent_symmetry'] = str(round(symmetry_score * 100, 1)) + "%"
+        elif symmetry_score >= good_sym:
+            confidence += 10
+            pattern_info['good_symmetry'] = str(round(symmetry_score * 100, 1)) + "%"
+        elif symmetry_score >= min_sym:
+            confidence += 5
+            pattern_info['acceptable_symmetry'] = str(round(symmetry_score * 100, 1)) + "%"
+        else:
+            confidence *= 0.85  # Penalty for poor symmetry
+            pattern_info['poor_symmetry'] = str(round(symmetry_score * 100, 1)) + "%"
+    except:
+        pass  # If symmetry calculation fails, skip it
+    
+    # Age penalty using config
     bars_since_pattern = len(data) - right_shoulder['idx_pos']
-    age_limit = 25 if timeframe == "1wk" else 35
+    timeframe_key = "weekly" if timeframe == "1wk" else "daily"
+    age_limit = PATTERN_AGE_LIMITS.get(timeframe_key, {}).get("Inverse Head Shoulders", 35)
     
     if bars_since_pattern > age_limit:
         confidence *= 0.8
