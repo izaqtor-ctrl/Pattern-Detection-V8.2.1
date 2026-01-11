@@ -1,11 +1,11 @@
 # config.py
-# Pattern Detector V8.2.1 - Configuration Settings
-# SWING TRADING OPTIMIZED - 1-3 Week Hold Periods
+# Pattern Detector V8.2.2 - Configuration Settings
+# CHATGPT-ALIGNED - Minimal IHS Rules for Swing Trading
 
 # Application Settings
-APP_TITLE = "Pro Pattern Detector v8.2.1"
-APP_SUBTITLE = "Swing Trading Optimized - Professional Pattern Recognition"
-VERSION = "8.2.1"
+APP_TITLE = "Pro Pattern Detector v8.2.2"
+APP_SUBTITLE = "ChatGPT-Aligned Swing Trading - Professional Pattern Recognition"
+VERSION = "8.2.2"
 
 # Pattern Detection Settings
 PATTERNS = ["Flat Top Breakout", "Bull Flag", "Cup Handle", "Inside Bar", "Inverse Head Shoulders"]
@@ -53,21 +53,21 @@ MARKET_TIMING_ADJUSTMENTS = {
     "monday_gap_check": True
 }
 
-# Pattern Age Limits (days/weeks) - OPTIMIZED FOR SWING TRADING
+# Pattern Age Limits (days/weeks) - CHATGPT-ALIGNED FOR SWING TRADING
 PATTERN_AGE_LIMITS = {
     "daily": {
         "Flat Top Breakout": 8,
         "Bull Flag": 10,
-        "Cup Handle": 35,              # CHANGED from 30 - allows fuller base formation
+        "Cup Handle": 35,
         "Inside Bar": 6,
-        "Inverse Head Shoulders": 50   # CHANGED from 30 - H&S takes longer to form
+        "Inverse Head Shoulders": 20   # CHANGED from 50 - ChatGPT: too stale for swings
     },
     "weekly": {
-        "Flat Top Breakout": 8,  # weeks
-        "Bull Flag": 10,         # weeks
-        "Cup Handle": 25,        # CHANGED from 30 - tighter for weekly
-        "Inside Bar": 8,         # weeks
-        "Inverse Head Shoulders": 35  # CHANGED from 20 - allows proper formation
+        "Flat Top Breakout": 8,
+        "Bull Flag": 10,
+        "Cup Handle": 25,
+        "Inside Bar": 8,
+        "Inverse Head Shoulders": 15   # CHANGED from 35 - swing-focused
     }
 }
 
@@ -109,7 +109,7 @@ INDICATOR_PERIODS = {
     "volume_sma": 20
 }
 
-# Pattern Detection Thresholds - SWING TRADING OPTIMIZED
+# Pattern Detection Thresholds - CHATGPT-ALIGNED
 PATTERN_THRESHOLDS = {
     "Flat Top Breakout": {
         "min_initial_gain": 0.10,  # 10%
@@ -122,11 +122,11 @@ PATTERN_THRESHOLDS = {
         "flag_tolerance": 0.95
     },
     "Cup Handle": {
-        "min_cup_depth": 0.08,      # 8% - catches early bases
-        "max_cup_depth": 0.30,      # 30% - CHANGED from 60% (swing trade focus)
-        "max_handle_depth": 0.18,   # 18% - CHANGED from 25% (tighter handles)
-        "ideal_cup_depth": 0.15,    # NEW - 15% is sweet spot for 2-4 week targets
-        "ideal_handle_depth": 0.10  # NEW - 10% handle indicates strong setup
+        "min_cup_depth": 0.08,      # 8%
+        "max_cup_depth": 0.30,      # 30% (swing-focused)
+        "max_handle_depth": 0.18,   # 18% (tighter handles)
+        "ideal_cup_depth": 0.15,    # 15% sweet spot
+        "ideal_handle_depth": 0.10  # 10% ideal
     },
     "Inside Bar": {
         "tight_consolidation": 0.30,    # 30% of mother bar (daily)
@@ -137,23 +137,49 @@ PATTERN_THRESHOLDS = {
         "moderate_consolidation_weekly": 0.75
     },
     "Inverse Head Shoulders": {
-        "min_head_depth": 0.05,     # 5% minimum depth
-        "max_head_depth": 0.40,     # 40% - CHANGED from 60% (swing trade focus)
-        "min_symmetry": 0.40,       # 40% - CHANGED from 50% (more patterns, still reliable)
-        "good_symmetry": 0.50,      # NEW - bonus threshold
-        "excellent_symmetry": 0.70, # NEW - high confidence threshold
-        "min_pattern_width_daily": 15,   # 15 days - CHANGED from 20 (catches faster patterns)
-        "max_pattern_width_daily": 50,   # 50 days - CHANGED from 60 (swing focus)
-        "min_pattern_width_weekly": 12,  # 12 weeks - CHANGED from 15
-        "max_pattern_width_weekly": 35,  # 35 weeks - CHANGED from 40
-        "impulsive_move_threshold": 0.6,  # 60% impulsive bars required
-        "ideal_head_depth": 0.15,        # 15% ideal depth (good for 2-4 week targets)
-        "ideal_head_depth_max": 0.20,    # NEW - upper bound of ideal range
-        "pivot_strength_daily": 4,       # 4 - CHANGED from 5 (more flexible, still quality)
-        "strict_pivot_strength_daily": 5, # NEW - bonus for perfect pivots
-        "pivot_strength_weekly": 4,      # 4 (keep)
-        "compact_pattern_days": 20,      # NEW - bonus if pattern forms quickly
-        "extended_pattern_days": 40      # NEW - penalty if pattern takes too long
+        # CHATGPT-ALIGNED MINIMAL RULESET
+        
+        # Head depth requirements (ChatGPT: 4-6% minimum for daily)
+        "min_head_depth": 0.04,              # 4% - CHANGED from 5% (ChatGPT recommendation)
+        "max_head_depth": 0.40,              # 40% (keep - swing-focused)
+        "ideal_head_depth_min": 0.05,        # 5% - NEW
+        "ideal_head_depth_max": 0.20,        # 20% - ideal range
+        
+        # Shoulder symmetry (ChatGPT: ≤6-8% difference)
+        "min_symmetry": 0.40,                # 40% minimum
+        "good_symmetry": 0.50,               # 50% good
+        "excellent_symmetry": 0.70,          # 70% excellent
+        "max_shoulder_diff_pct": 0.08,       # 8% - NEW (ChatGPT: ≤6-8%)
+        
+        # Pattern width (ChatGPT: 12-35 days for daily)
+        "min_pattern_width_daily": 12,       # 12 days - CHANGED from 15 (ChatGPT)
+        "max_pattern_width_daily": 35,       # 35 days - CHANGED from 50 (ChatGPT)
+        "min_pattern_width_weekly": 8,       # 8 weeks - CHANGED from 12
+        "max_pattern_width_weekly": 20,      # 20 weeks - CHANGED from 35
+        
+        # Pivot strength (ChatGPT: N=2-3 for daily, simpler validation)
+        "pivot_strength_daily": 3,           # 3 - CHANGED from 4 (N-left/N-right)
+        "pivot_strength_weekly": 2,          # 2 - CHANGED from 4
+        "strict_pivot_strength": 5,          # 5 - bonus for perfect pivots
+        
+        # Neckline validation (ChatGPT: ≤6-8% slope variance)
+        "neckline_slope_max": 0.08,          # 8% - NEW (ChatGPT recommendation)
+        "neckline_min_separation": 2,        # 2 bars - NEW (avoid single-bar spikes)
+        
+        # Breakout confirmation (ChatGPT: ≥0.5% above neckline)
+        "breakout_buffer": 0.005,            # 0.5% - NEW (ChatGPT: must break above)
+        "breakout_volume_min": 1.3,          # 1.3x - NEW (required for daily)
+        
+        # Freshness filter (ChatGPT: ≤5 bars since breakout)
+        "freshness_bars_daily": 5,           # 5 bars - NEW (ChatGPT recommendation)
+        "freshness_bars_weekly": 3,          # 3 bars - NEW
+        
+        # Pattern compactness bonuses/penalties
+        "compact_pattern_days": 20,          # 20 days (bonus threshold)
+        "extended_pattern_days": 30,         # 30 days - CHANGED from 40 (tighter)
+        
+        # REMOVED UNUSED FIELDS (ChatGPT: config should match reality)
+        # "impulsive_move_threshold": DELETED - not validated in code
     }
 }
 
