@@ -1,5 +1,5 @@
 # pattern_detectors.py
-# Pattern Detector V8.2.1 - Swing Trading Optimized with Bug Fixes
+# Pattern Detector V8.2.2 - ChatGPT-Aligned IHS with Proper Pivot Detection
 
 import numpy as np
 from config import (
@@ -529,156 +529,346 @@ def detect_cup_handle(data, macd_line, signal_line, histogram, market_context):
     return confidence, pattern_info
 
 def detect_inverse_head_shoulders(data, macd_line, signal_line, histogram, market_context, timeframe="daily"):
-    """Simple Inverse Head and Shoulders Detection"""
+    """
+    ChatGPT-Aligned Inverse Head & Shoulders Detection
+    Implements minimal, swing-tradable ruleset with proper pivot validation
+    
+    Key improvements over V8.2.1:
+    - Proper N-left/N-right pivot detection (not just local mins)
+    - Neckline slope validation
+    - Breakout confirmation (must be above neckline)
+    - Freshness filter (only recent breakouts)
+    - Tighter width constraints (12-35 days)
+    """
     confidence = 0
     pattern_info = {}
     
     if len(data) < 30:
         return confidence, pattern_info
     
-    # Simple 3-low detection
+    thresholds = PATTERN_THRESHOLDS["Inverse Head Shoulders"]
+    
+    # Determine pivot strength based on timeframe
+    N = thresholds.get('pivot_strength_daily', 3) if timeframe != "1wk" else thresholds.get('pivot_strength_weekly', 2)
+    
+    # Lookback window
     lookback = min(60, len(data))
-    recent_data = data.tail(lookback)
+    recent_data = data.tail(lookback).reset_index(drop=True)
     
     if len(recent_data) < 20:
         return confidence, pattern_info
     
-    # Find lowest point (head)
-    head_idx = recent_data['Low'].idxmin()
-    head_idx_pos = recent_data.index.get_loc(head_idx)
-    head_price = recent_data['Low'].loc[head_idx]
+    # ========================================
+    # STEP 1: Find Pivot Lows (ChatGPT Method)
+    # ========================================
+    def is_pivot_low(idx, data, N):
+        """
+        Check if idx is a pivot low with N bars left and right
+        ChatGPT: "A bar is a pivot low if its low is the lowest among N bars left and N bars right"
+        """
+        if idx < N or idx >= len(data) - N:
+            return False
+        
+        pivot_low = data['Low'].iloc[idx]
+        
+        # Check N bars to the left
+        for i in range(idx - N, idx):
+            if data['Low'].iloc[i] <= pivot_low:
+                return False
+        
+        # Check N bars to the right
+        for i in range(idx + 1, idx + N + 1):
+            if data['Low'].iloc[i] <= pivot_low:
+                return False
+        
+        return True
     
-    # Need buffer around head
-    if head_idx_pos < 5 or head_idx_pos > len(recent_data) - 5:
+    # Find all pivot lows
+    pivot_lows = []
+    for i in range(N, len(recent_data) - N):
+        if is_pivot_low(i, recent_data, N):
+            pivot_lows.append({
+                'idx': i,
+                'price': recent_data['Low'].iloc[i]
+            })
+    
+    if len(pivot_lows) < 3:
         return confidence, pattern_info
     
-    # Find left shoulder
-    left_data = recent_data.iloc[:head_idx_pos]
-    if len(left_data) < 5:
+    # ========================================
+    # STEP 2: Identify Head (lowest pivot)
+    # ========================================
+    head = min(pivot_lows, key=lambda x: x['price'])
+    head_idx = head['idx']
+    head_price = head['price']
+    
+    # Need pivots on both sides of head
+    left_pivots = [p for p in pivot_lows if p['idx'] < head_idx]
+    right_pivots = [p for p in pivot_lows if p['idx'] > head_idx]
+    
+    if not left_pivots or not right_pivots:
         return confidence, pattern_info
     
-    left_candidates = []
-    for i in range(2, len(left_data) - 2):
-        price = left_data['Low'].iloc[i]
-        if price <= left_data['Low'].iloc[i-2:i+3].min() and price > head_price:
-            left_candidates.append({'idx_pos': i, 'price': price})
+    # ========================================
+    # STEP 3: Find Left and Right Shoulders
+    # ========================================
+    # ChatGPT: Shoulders should be higher than head
+    # Find the pivot closest to head on each side
+    left_shoulder = max(left_pivots, key=lambda x: x['idx'])  # Closest to head on left
+    right_shoulder = min(right_pivots, key=lambda x: x['idx'])  # Closest to head on right
     
-    if not left_candidates:
+    ls_price = left_shoulder['price']
+    rs_price = right_shoulder['price']
+    ls_idx = left_shoulder['idx']
+    rs_idx = right_shoulder['idx']
+    
+    # ========================================
+    # STEP 4: Validate Head Depth
+    # ========================================
+    # ChatGPT: Head must be ≥4-6% below shoulders
+    avg_shoulder_price = (ls_price + rs_price) / 2
+    head_depth_pct = (avg_shoulder_price - head_price) / avg_shoulder_price
+    
+    min_head_depth = thresholds.get('min_head_depth', 0.04)
+    max_head_depth = thresholds.get('max_head_depth', 0.40)
+    
+    if head_depth_pct < min_head_depth or head_depth_pct > max_head_depth:
         return confidence, pattern_info
     
-    left_shoulder = min(left_candidates, key=lambda x: x['price'])
+    # ========================================
+    # STEP 5: Validate Shoulder Symmetry
+    # ========================================
+    # ChatGPT: Shoulders should be within ≤6-8% of each other
+    shoulder_diff_pct = abs(ls_price - rs_price) / avg_shoulder_price
+    max_shoulder_diff = thresholds.get('max_shoulder_diff_pct', 0.08)
     
-    # Find right shoulder
-    right_data = recent_data.iloc[head_idx_pos:]
-    if len(right_data) < 5:
+    if shoulder_diff_pct > max_shoulder_diff:
         return confidence, pattern_info
     
-    right_candidates = []
-    for i in range(2, len(right_data) - 2):
-        price = right_data['Low'].iloc[i]
-        if price <= right_data['Low'].iloc[i-2:i+3].min() and price > head_price:
-            right_candidates.append({'idx_pos': head_idx_pos + i, 'price': price})
+    # Calculate symmetry score (for bonuses)
+    symmetry_score = 1 - shoulder_diff_pct
     
-    if not right_candidates:
+    # ========================================
+    # STEP 6: Validate Pattern Width
+    # ========================================
+    # ChatGPT: 12-35 days for daily, 8-20 weeks for weekly
+    pattern_width = rs_idx - ls_idx
+    
+    min_width = thresholds.get('min_pattern_width_daily', 12) if timeframe != "1wk" else thresholds.get('min_pattern_width_weekly', 8)
+    max_width = thresholds.get('max_pattern_width_daily', 35) if timeframe != "1wk" else thresholds.get('max_pattern_width_weekly', 20)
+    
+    if pattern_width < min_width or pattern_width > max_width:
         return confidence, pattern_info
     
-    right_shoulder = min(right_candidates, key=lambda x: x['price'])
+    # ========================================
+    # STEP 7: Find and Validate Neckline
+    # ========================================
+    # ChatGPT: Find peak between LS-Head and Head-RS
+    left_section = recent_data.iloc[ls_idx:head_idx+1]
+    right_section = recent_data.iloc[head_idx:rs_idx+1]
     
-    # Find neckline
-    left_neck_data = recent_data.iloc[left_shoulder['idx_pos']:head_idx_pos]
-    right_neck_data = recent_data.iloc[head_idx_pos:right_shoulder['idx_pos']]
-    
-    if len(left_neck_data) < 2 or len(right_neck_data) < 2:
+    if len(left_section) < 2 or len(right_section) < 2:
         return confidence, pattern_info
     
-    left_neck_price = left_neck_data['High'].max()
-    right_neck_price = right_neck_data['High'].max()
+    # Find neckline peaks
+    left_peak_idx = left_section['High'].idxmax()
+    right_peak_idx = right_section['High'].idxmax()
     
-    # Calculate metrics
-    avg_shoulder_price = (left_shoulder['price'] + right_shoulder['price']) / 2
-    head_depth = (avg_shoulder_price - head_price) / avg_shoulder_price
+    left_peak_price = left_section['High'].loc[left_peak_idx]
+    right_peak_price = right_section['High'].loc[right_peak_idx]
     
-    pattern_width = right_shoulder['idx_pos'] - left_shoulder['idx_pos']
+    # ChatGPT: Peaks should be at least 2-3 bars away from troughs
+    min_separation = thresholds.get('neckline_min_separation', 2)
+    left_peak_pos = left_section.index.get_loc(left_peak_idx)
+    right_peak_pos = right_section.index.get_loc(right_peak_idx)
     
-    # Get thresholds from config
-    thresholds = PATTERN_THRESHOLDS["Inverse Head Shoulders"]
-    min_width = thresholds.get('min_pattern_width_daily', 15) if timeframe != "1wk" else thresholds.get('min_pattern_width_weekly', 12)
-    max_width = thresholds.get('max_pattern_width_daily', 50) if timeframe != "1wk" else thresholds.get('max_pattern_width_weekly', 35)
-    
-    # Basic validation using config thresholds
-    if head_depth < thresholds['min_head_depth'] or pattern_width < min_width or pattern_width > max_width:
+    if left_peak_pos < min_separation or right_peak_pos < min_separation:
         return confidence, pattern_info
     
-    # Check maximum head depth
-    if head_depth > thresholds['max_head_depth']:
-        confidence *= 0.6  # Major penalty for too deep (takes too long to recover)
-        pattern_info['head_too_deep'] = str(round(head_depth * 100, 1)) + "%"
-        # Still continue but with reduced confidence
+    # ChatGPT: Validate neckline slope (≤6-8% variance)
+    neckline_slope = abs(left_peak_price - right_peak_price) / left_peak_price
+    max_slope = thresholds.get('neckline_slope_max', 0.08)
     
-    # Base confidence
-    confidence = 50
+    if neckline_slope > max_slope:
+        confidence *= 0.7  # Penalty for steep neckline
+        pattern_info['steep_neckline'] = str(round(neckline_slope * 100, 1)) + "%"
+    
+    neckline_price = (left_peak_price + right_peak_price) / 2
+    
+    # ========================================
+    # STEP 8: Breakout Confirmation
+    # ========================================
+    # ChatGPT: Must close ≥0.5% above neckline
+    current_price = data['Close'].iloc[-1]
+    breakout_buffer = thresholds.get('breakout_buffer', 0.005)  # 0.5%
+    
+    has_broken_out = current_price >= neckline_price * (1 + breakout_buffer)
+    
+    if not has_broken_out:
+        # Pattern exists but hasn't broken out yet
+        confidence = 40  # Lower confidence for incomplete patterns
+        pattern_info['awaiting_breakout'] = True
+        pattern_info['neckline_distance'] = str(round((neckline_price - current_price) / current_price * 100, 1)) + "%"
+    else:
+        # Pattern has broken out
+        confidence = 65  # Higher base for confirmed breakouts
+        pattern_info['breakout_confirmed'] = True
+        
+        # ========================================
+        # STEP 9: Freshness Filter
+        # ========================================
+        # ChatGPT: Breakout must be within last ≤5 bars (daily) or ≤3 bars (weekly)
+        # Find the breakout bar
+        breakout_bar = None
+        for i in range(len(data) - 1, max(0, len(data) - 10), -1):
+            if data['Close'].iloc[i] >= neckline_price * (1 + breakout_buffer):
+                breakout_bar = len(data) - 1 - i
+                break
+        
+        freshness_limit = thresholds.get('freshness_bars_daily', 5) if timeframe != "1wk" else thresholds.get('freshness_bars_weekly', 3)
+        
+        if breakout_bar is not None and breakout_bar > freshness_limit:
+            confidence *= 0.5  # Major penalty for stale breakouts
+            pattern_info['stale_breakout'] = str(breakout_bar) + " bars ago"
+        elif breakout_bar is not None and breakout_bar <= freshness_limit:
+            confidence += 15  # Bonus for fresh breakout
+            pattern_info['fresh_breakout'] = str(breakout_bar) + " bars ago"
+    
+    # ========================================
+    # STEP 10: Volume Confirmation
+    # ========================================
+    # ChatGPT: Breakout volume ≥1.3x average (required for daily)
+    avg_volume = data['Volume'].tail(20).mean()
+    current_volume = data['Volume'].iloc[-1]
+    volume_multiplier = current_volume / avg_volume
+    
+    volume_score = 0
+    if volume_multiplier >= 2.0:
+        volume_score += 25
+        pattern_info['exceptional_volume'] = True
+        pattern_info['volume_status'] = "Exceptional Volume (" + str(round(volume_multiplier, 1)) + "x)"
+    elif volume_multiplier >= 1.5:
+        volume_score += 20
+        pattern_info['strong_volume'] = True
+        pattern_info['volume_status'] = "Strong Volume (" + str(round(volume_multiplier, 1)) + "x)"
+    elif volume_multiplier >= 1.3:
+        volume_score += 15
+        pattern_info['good_volume'] = True
+        pattern_info['volume_status'] = "Good Volume (" + str(round(volume_multiplier, 1)) + "x)"
+    else:
+        pattern_info['weak_volume'] = True
+        pattern_info['volume_status'] = "Weak Volume (" + str(round(volume_multiplier, 1)) + "x)"
+    
+    confidence += volume_score
+    
+    # ChatGPT: Volume confirmation required for daily (can be optional for 4H)
+    if timeframe != "1wk" and volume_multiplier < thresholds.get('breakout_volume_min', 1.3):
+        confidence = min(confidence, MAX_CONFIDENCE_WITHOUT_VOLUME)
+        pattern_info['confidence_capped'] = "Volume below 1.3x requirement"
+    
+    # ========================================
+    # STEP 11: Scoring Bonuses/Penalties
+    # ========================================
     
     # Pattern info
     pattern_info.update({
-        'left_shoulder_price': round(left_shoulder['price'], 2),
+        'left_shoulder_price': round(ls_price, 2),
         'head_price': round(head_price, 2),
-        'right_shoulder_price': round(right_shoulder['price'], 2),
-        'left_neck_price': round(left_neck_price, 2),
-        'right_neck_price': round(right_neck_price, 2),
-        'head_depth_percent': str(round(head_depth * 100, 1)) + "%",
-        'pattern_width_bars': int(pattern_width)
+        'right_shoulder_price': round(rs_price, 2),
+        'left_neck_price': round(left_peak_price, 2),
+        'right_neck_price': round(right_peak_price, 2),
+        'neckline_price': round(neckline_price, 2),
+        'head_depth_percent': str(round(head_depth_pct * 100, 1)) + "%",
+        'pattern_width_bars': int(pattern_width),
+        'shoulder_symmetry': str(round(symmetry_score * 100, 1)) + "%",
+        'neckline_slope': str(round(neckline_slope * 100, 1)) + "%"
     })
     
-    # Depth scoring - favor ideal range for swing trading
-    ideal_min = thresholds.get('ideal_head_depth', 0.15) - 0.05  # 10%
-    ideal_max = thresholds.get('ideal_head_depth_max', 0.20)     # 20%
+    # ChatGPT Scoring: Start at 60, adjust
     
-    if ideal_min <= head_depth <= ideal_max:
-        confidence += 20
+    # Head depth bonuses (ideal 5-20%)
+    ideal_min = thresholds.get('ideal_head_depth_min', 0.05)
+    ideal_max = thresholds.get('ideal_head_depth_max', 0.20)
+    
+    if ideal_min <= head_depth_pct <= ideal_max:
+        confidence += 15
         pattern_info['ideal_head_depth'] = True
-    elif head_depth >= thresholds['min_head_depth']:
-        confidence += 12
-        pattern_info['acceptable_head_depth'] = True
+    elif head_depth_pct < ideal_min:
+        confidence += 5
+        pattern_info['shallow_head'] = True
     
-    # Additional bonus for good depth range
-    if 0.10 <= head_depth <= 0.25:
-        confidence += 8
-        pattern_info['good_head_depth'] = True
+    # Shoulder symmetry bonuses (ChatGPT: ≤5% daily = tight)
+    excellent_sym = thresholds.get('excellent_symmetry', 0.70)
+    good_sym = thresholds.get('good_symmetry', 0.50)
     
-    # Pattern width bonuses/penalties for swing trading
+    if symmetry_score >= excellent_sym:
+        confidence += 15
+        pattern_info['excellent_symmetry'] = True
+    elif symmetry_score >= good_sym:
+        confidence += 10
+        pattern_info['good_symmetry'] = True
+    elif shoulder_diff_pct <= 0.05:  # ≤5% difference (very tight)
+        confidence += 10
+        pattern_info['tight_shoulders'] = str(round(shoulder_diff_pct * 100, 1)) + "%"
+    
+    # Neckline slope bonuses
+    if neckline_slope <= 0.03:  # ≤3% slope
+        confidence += 5
+        pattern_info['flat_neckline'] = True
+    
+    # RS higher than LS (bullish)
+    if rs_price > ls_price:
+        confidence += 5
+        pattern_info['ascending_shoulders'] = True
+    
+    # Pattern width bonuses/penalties
     compact_threshold = thresholds.get('compact_pattern_days', 20)
-    extended_threshold = thresholds.get('extended_pattern_days', 40)
+    extended_threshold = thresholds.get('extended_pattern_days', 30)
     
     if pattern_width <= compact_threshold:
-        confidence += 8
+        confidence += 10
         pattern_info['compact_pattern'] = True
     elif pattern_width >= extended_threshold:
-        confidence *= 0.90  # Slight penalty for extended patterns
+        confidence *= 0.85
         pattern_info['extended_pattern'] = True
-    
-    # Position relative to neckline
-    current_price = data['Close'].iloc[-1]
-    neckline_price = (left_neck_price + right_neck_price) / 2
-    
-    distance_to_neckline = abs(neckline_price - current_price) / current_price
-    if distance_to_neckline < 0.05:
-        confidence += 15
-        pattern_info['near_breakout'] = True
-    elif distance_to_neckline < 0.10:
-        confidence += 10
-        pattern_info['approaching_neckline'] = True
     
     # Technical indicators
     if macd_line.iloc[-1] > signal_line.iloc[-1]:
-        confidence += 10
+        confidence += 8
         pattern_info['macd_bullish'] = True
     
     if histogram.iloc[-1] > histogram.iloc[-3]:
-        confidence += 10
+        confidence += 8
         pattern_info['momentum_improving'] = True
     
-    # Volume analysis
-    avg_volume = data['Volume'].tail(20).mean()
+    # Apply volume confirmation cap
+    if not (pattern_info.get('good_volume') or pattern_info.get('strong_volume') or pattern_info.get('exceptional_volume')):
+        confidence = min(confidence, MAX_CONFIDENCE_WITHOUT_VOLUME)
+        if 'confidence_capped' not in pattern_info:
+            pattern_info['confidence_capped'] = "No volume confirmation"
+    
+    # ========================================
+    # STEP 12: Age Penalty
+    # ========================================
+    # How long ago did the pattern complete?
+    bars_since_rs = len(data) - 1 - (len(data) - len(recent_data) + rs_idx)
+    
+    timeframe_key = "weekly" if timeframe == "1wk" else "daily"
+    age_limit = PATTERN_AGE_LIMITS.get(timeframe_key, {}).get("Inverse Head Shoulders", 20)
+    
+    if bars_since_rs > age_limit:
+        confidence *= 0.6
+        pattern_info['pattern_too_old'] = str(bars_since_rs) + " bars ago"
+    
+    # ========================================
+    # STEP 13: Invalidation Check
+    # ========================================
+    # Price should not be below head (major invalidation)
+    if current_price < head_price * 0.98:
+        confidence *= 0.4
+        pattern_info['below_head_warning'] = "Price near/below head - pattern compromised"
+    
+    return confidence, pattern_info
     current_volume = data['Volume'].iloc[-1]
     volume_multiplier = current_volume / avg_volume
     
